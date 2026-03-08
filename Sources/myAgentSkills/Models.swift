@@ -287,12 +287,23 @@ struct CustomSkillSection: Equatable {
     let skills: [CustomSkillRecord]
 }
 
+enum CustomSkillStorageLocation: String, Equatable, Hashable {
+    case active
+    case disabled
+
+    var isDisabled: Bool {
+        self == .disabled
+    }
+}
+
 struct CustomSkillRecord: Equatable, Hashable {
     let name: String
     let description: String
     let folderName: String
     let folderURL: URL
     let skillFileURL: URL
+    let isDisabled: Bool
+    let storageLocation: CustomSkillStorageLocation
     let categoryScopeID: String?
     let categoryLabel: String?
     let categoryDescription: String?

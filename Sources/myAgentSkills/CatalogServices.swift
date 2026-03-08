@@ -58,10 +58,19 @@ final class CustomSkillsCatalogService {
     private let rootURL: URL
     private let fileManager: FileManager
     private let categorizationFileName = "skills.json"
+    private let disabledDirectoryName = ".disabled"
+    private let trashItemHandler: (URL) throws -> Void
 
-    init(rootURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".agents/skills"), fileManager: FileManager = .default) {
+    init(
+        rootURL: URL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".agents/skills"),
+        fileManager: FileManager = .default,
+        trashItemHandler: ((URL) throws -> Void)? = nil
+    ) {
         self.rootURL = rootURL
         self.fileManager = fileManager
+        self.trashItemHandler = trashItemHandler ?? { url in
+            _ = try fileManager.trashItem(at: url, resultingItemURL: nil)
+        }
     }
 
     func loadSnapshot() -> CustomSkillsCatalogSnapshot {
@@ -106,15 +115,55 @@ final class CustomSkillsCatalogService {
         ]
     }
 
-    private func loadSkills(categorizationState: SkillCategorizationState) -> [CustomSkillRecord] {
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
+    func setSkill(_ skill: CustomSkillRecord, enabled: Bool) throws {
+        let destinationLocation: CustomSkillStorageLocation = enabled ? .active : .disabled
+        guard destinationLocation != skill.storageLocation else { return }
+
+        let sourceURL = skill.folderURL
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            throw CustomSkillMutationError.missingSkill(folderName: skill.folderName)
         }
 
+        let destinationRootURL = rootURL(for: destinationLocation)
+        if destinationLocation == .disabled {
+            try ensureDisabledDirectoryExists()
+        }
+
+        let destinationURL = destinationRootURL.appendingPathComponent(skill.folderName, isDirectory: true)
+        guard !fileManager.fileExists(atPath: destinationURL.path) else {
+            throw CustomSkillMutationError.destinationAlreadyExists(
+                folderName: skill.folderName,
+                destinationPath: destinationURL.path
+            )
+        }
+
+        do {
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        } catch {
+            throw CustomSkillMutationError.moveFailed(
+                folderName: skill.folderName,
+                destinationPath: destinationURL.path,
+                underlyingMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func trashSkill(_ skill: CustomSkillRecord) throws {
+        guard fileManager.fileExists(atPath: skill.folderURL.path) else {
+            throw CustomSkillMutationError.missingSkill(folderName: skill.folderName)
+        }
+
+        do {
+            try trashItemHandler(skill.folderURL)
+        } catch {
+            throw CustomSkillMutationError.trashFailed(
+                folderName: skill.folderName,
+                underlyingMessage: error.localizedDescription
+            )
+        }
+    }
+
+    private func loadSkills(categorizationState: SkillCategorizationState) -> [CustomSkillRecord] {
         let categorizationByFolder: [String: SkillCategorizationEntry]
         let scopesByID: [String: SkillCatalogScope]
         if case .loaded(let definition) = categorizationState {
@@ -129,6 +178,41 @@ final class CustomSkillsCatalogService {
         } else {
             categorizationByFolder = [:]
             scopesByID = [:]
+        }
+
+        let activeSkills = loadSkills(
+            in: rootURL,
+            storageLocation: .active,
+            categorizationByFolder: categorizationByFolder,
+            scopesByID: scopesByID
+        )
+        let disabledSkills = loadSkills(
+            in: disabledRootURL,
+            storageLocation: .disabled,
+            categorizationByFolder: categorizationByFolder,
+            scopesByID: scopesByID
+        )
+
+        return (activeSkills + disabledSkills).sorted {
+            if $0.isDisabled != $1.isDisabled {
+                return !$0.isDisabled && $1.isDisabled
+            }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func loadSkills(
+        in directoryURL: URL,
+        storageLocation: CustomSkillStorageLocation,
+        categorizationByFolder: [String: SkillCategorizationEntry],
+        scopesByID: [String: SkillCatalogScope]
+    ) -> [CustomSkillRecord] {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
         }
 
         return contents.compactMap { folderURL in
@@ -147,6 +231,8 @@ final class CustomSkillsCatalogService {
                 folderName: folderName,
                 folderURL: folderURL,
                 skillFileURL: skillFileURL,
+                isDisabled: storageLocation.isDisabled,
+                storageLocation: storageLocation,
                 categoryScopeID: scope?.id,
                 categoryLabel: scope?.label,
                 categoryDescription: scope?.description,
@@ -154,7 +240,6 @@ final class CustomSkillsCatalogService {
                 platforms: categorizationEntry?.platforms ?? []
             )
         }
-        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private func loadCategorizationState() -> SkillCategorizationState {
@@ -179,6 +264,44 @@ final class CustomSkillsCatalogService {
         return skills.filter { record in
             let searchable = record.searchableText
             return tokens.allSatisfy(searchable.contains)
+        }
+    }
+
+    private var disabledRootURL: URL {
+        rootURL.appendingPathComponent(disabledDirectoryName, isDirectory: true)
+    }
+
+    private func rootURL(for storageLocation: CustomSkillStorageLocation) -> URL {
+        switch storageLocation {
+        case .active:
+            return rootURL
+        case .disabled:
+            return disabledRootURL
+        }
+    }
+
+    private func ensureDisabledDirectoryExists() throws {
+        guard !fileManager.fileExists(atPath: disabledRootURL.path) else { return }
+        try fileManager.createDirectory(at: disabledRootURL, withIntermediateDirectories: true)
+    }
+}
+
+enum CustomSkillMutationError: LocalizedError, Equatable {
+    case missingSkill(folderName: String)
+    case destinationAlreadyExists(folderName: String, destinationPath: String)
+    case moveFailed(folderName: String, destinationPath: String, underlyingMessage: String)
+    case trashFailed(folderName: String, underlyingMessage: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingSkill(let folderName):
+            return "The skill folder for `\(folderName)` could not be found anymore."
+        case .destinationAlreadyExists(let folderName, let destinationPath):
+            return "Could not move `\(folderName)` because a folder already exists at `\(destinationPath)`."
+        case .moveFailed(let folderName, let destinationPath, let underlyingMessage):
+            return "Could not move `\(folderName)` to `\(destinationPath)`. \(underlyingMessage)"
+        case .trashFailed(let folderName, let underlyingMessage):
+            return "Could not move `\(folderName)` to the Trash. \(underlyingMessage)"
         }
     }
 }

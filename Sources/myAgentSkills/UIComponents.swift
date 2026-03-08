@@ -51,6 +51,24 @@ func makeActionButton(_ title: String, target: AnyObject?, action: Selector) -> 
 }
 
 @MainActor
+func makeIconActionButton(
+    systemSymbolName: String,
+    accessibilityLabel: String,
+    target: AnyObject?,
+    action: Selector
+) -> NSButton {
+    let button = NSButton(title: "", target: target, action: action)
+    button.bezelStyle = .rounded
+    button.controlSize = .small
+    button.image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: accessibilityLabel)
+    button.imagePosition = .imageOnly
+    button.contentTintColor = .secondaryLabelColor
+    button.toolTip = accessibilityLabel
+    button.setButtonType(.momentaryPushIn)
+    return button
+}
+
+@MainActor
 func makeFilterChipButton(_ title: String, target: AnyObject?, action: Selector, isSelected: Bool) -> NSButton {
     let button = NSButton(title: title, target: target, action: action)
     button.bezelStyle = .rounded
@@ -194,7 +212,15 @@ final class SkillRowBox: NSView {
     private let isExpandable: Bool
     private var isExpanded = false
 
-    init(title: String, subtitle: String, body: String, actionButtons: [NSButton]) {
+    init(
+        title: String,
+        subtitle: String,
+        body: String,
+        actionButtons: [NSButton],
+        headerAccessoryViews: [NSView] = [],
+        statusText: String? = nil,
+        isDimmed: Bool = false
+    ) {
         self.fullBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         self.collapsedBody = SkillRowBox.truncatedBody(for: self.fullBody)
         self.isExpandable = self.collapsedBody != self.fullBody
@@ -209,6 +235,7 @@ final class SkillRowBox: NSView {
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.separatorColor.cgColor
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.78).cgColor
+        alphaValue = isDimmed ? 0.7 : 1.0
 
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -248,6 +275,42 @@ final class SkillRowBox: NSView {
         toggleButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         toggleButton.setContentHuggingPriority(.required, for: .horizontal)
 
+        let titleRow = NSStackView()
+        titleRow.orientation = .horizontal
+        titleRow.spacing = 8
+        titleRow.alignment = .centerY
+        titleRow.addArrangedSubview(titleLabel)
+
+        if let statusText, !statusText.isEmpty {
+            let statusBadgeLabel = makeBadgeLabel(statusText)
+            let statusBadge = NSView()
+            statusBadge.translatesAutoresizingMaskIntoConstraints = false
+            statusBadge.wantsLayer = true
+            statusBadge.layer?.cornerRadius = 8
+            statusBadge.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.16).cgColor
+            statusBadge.addSubview(statusBadgeLabel)
+            statusBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                statusBadgeLabel.leadingAnchor.constraint(equalTo: statusBadge.leadingAnchor, constant: 8),
+                statusBadgeLabel.trailingAnchor.constraint(equalTo: statusBadge.trailingAnchor, constant: -8),
+                statusBadgeLabel.topAnchor.constraint(equalTo: statusBadge.topAnchor, constant: 3),
+                statusBadgeLabel.bottomAnchor.constraint(equalTo: statusBadge.bottomAnchor, constant: -3)
+            ])
+            titleRow.addArrangedSubview(statusBadge)
+        }
+
+        let titleSpacer = NSView()
+        titleSpacer.translatesAutoresizingMaskIntoConstraints = false
+        titleSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleRow.addArrangedSubview(titleSpacer)
+
+        for accessoryView in headerAccessoryViews {
+            accessoryView.setContentCompressionResistancePriority(.required, for: .horizontal)
+            accessoryView.setContentHuggingPriority(.required, for: .horizontal)
+            titleRow.addArrangedSubview(accessoryView)
+        }
+
         let bottomRow = NSStackView()
         bottomRow.orientation = .horizontal
         bottomRow.spacing = 8
@@ -258,7 +321,7 @@ final class SkillRowBox: NSView {
         bottomRow.addArrangedSubview(spacer)
         bottomRow.addArrangedSubview(buttonRow)
 
-        let stack = NSStackView(views: [titleLabel, subtitleLabel, bodyLabel, bottomRow])
+        let stack = NSStackView(views: [titleRow, subtitleLabel, bodyLabel, bottomRow])
         stack.orientation = .vertical
         stack.spacing = 6
         stack.alignment = .width

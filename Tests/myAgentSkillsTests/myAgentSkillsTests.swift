@@ -28,6 +28,8 @@ final class myAgentSkillsTests: XCTestCase {
                 folderName: "frontend-design",
                 folderURL: URL(fileURLWithPath: "/tmp/frontend-design"),
                 skillFileURL: URL(fileURLWithPath: "/tmp/frontend-design/SKILL.md"),
+                isDisabled: false,
+                storageLocation: .active,
                 categoryScopeID: nil,
                 categoryLabel: nil,
                 categoryDescription: nil,
@@ -40,6 +42,8 @@ final class myAgentSkillsTests: XCTestCase {
                 folderName: "structured-debugging",
                 folderURL: URL(fileURLWithPath: "/tmp/structured-debugging"),
                 skillFileURL: URL(fileURLWithPath: "/tmp/structured-debugging/SKILL.md"),
+                isDisabled: false,
+                storageLocation: .active,
                 categoryScopeID: nil,
                 categoryLabel: nil,
                 categoryDescription: nil,
@@ -167,6 +171,103 @@ final class myAgentSkillsTests: XCTestCase {
 
         XCTAssertFalse(message.isEmpty)
         XCTAssertEqual(snapshot.skills.map(\.folderName), ["frontend-design"])
+    }
+
+    func testLoadsDisabledSkillsFromDisabledDirectory() throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try makeSkill(named: "frontend-design", description: "UI work", in: rootURL)
+
+        let disabledURL = rootURL.appendingPathComponent(".disabled", isDirectory: true)
+        try FileManager.default.createDirectory(at: disabledURL, withIntermediateDirectories: true)
+        try makeSkill(named: "structured-debugging", description: "Debug work", in: disabledURL)
+
+        let service = CustomSkillsCatalogService(rootURL: rootURL)
+        let snapshot = service.loadSnapshot()
+
+        XCTAssertEqual(snapshot.skills.count, 2)
+        XCTAssertEqual(snapshot.skills.first(where: { $0.folderName == "frontend-design" })?.isDisabled, false)
+        XCTAssertEqual(snapshot.skills.first(where: { $0.folderName == "structured-debugging" })?.isDisabled, true)
+        XCTAssertEqual(snapshot.skills.first(where: { $0.folderName == "structured-debugging" })?.storageLocation, .disabled)
+    }
+
+    func testDisablingSkillMovesItIntoDisabledDirectory() throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try makeSkill(named: "frontend-design", description: "UI work", in: rootURL)
+
+        let service = CustomSkillsCatalogService(rootURL: rootURL)
+        let skill = try XCTUnwrap(service.loadSnapshot().skills.first)
+
+        try service.setSkill(skill, enabled: false)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("frontend-design").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent(".disabled/frontend-design").path))
+    }
+
+    func testEnablingSkillMovesItBackToRootDirectory() throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let disabledURL = rootURL.appendingPathComponent(".disabled", isDirectory: true)
+        try FileManager.default.createDirectory(at: disabledURL, withIntermediateDirectories: true)
+        try makeSkill(named: "structured-debugging", description: "Debug work", in: disabledURL)
+
+        let service = CustomSkillsCatalogService(rootURL: rootURL)
+        let skill = try XCTUnwrap(service.loadSnapshot().skills.first(where: { $0.folderName == "structured-debugging" }))
+
+        try service.setSkill(skill, enabled: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("structured-debugging").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: disabledURL.appendingPathComponent("structured-debugging").path))
+    }
+
+    func testEnablingSkillFailsWhenDestinationAlreadyExists() throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try makeSkill(named: "structured-debugging", description: "Active copy", in: rootURL)
+
+        let disabledURL = rootURL.appendingPathComponent(".disabled", isDirectory: true)
+        try FileManager.default.createDirectory(at: disabledURL, withIntermediateDirectories: true)
+        try makeSkill(named: "structured-debugging", description: "Disabled copy", in: disabledURL)
+
+        let service = CustomSkillsCatalogService(rootURL: rootURL)
+        let disabledSkill = try XCTUnwrap(service.loadSnapshot().skills.first(where: { $0.isDisabled }))
+
+        XCTAssertThrowsError(try service.setSkill(disabledSkill, enabled: true)) { error in
+            XCTAssertEqual(
+                error as? CustomSkillMutationError,
+                .destinationAlreadyExists(
+                    folderName: "structured-debugging",
+                    destinationPath: rootURL.appendingPathComponent("structured-debugging").path
+                )
+            )
+        }
+    }
+
+    func testTrashingSkillUsesTrashHandlerAndRemovesItFromSnapshot() throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try makeSkill(named: "frontend-design", description: "UI work", in: rootURL)
+
+        var trashedPaths: [String] = []
+        let service = CustomSkillsCatalogService(
+            rootURL: rootURL,
+            trashItemHandler: { url in
+                trashedPaths.append(url.path)
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        let skill = try XCTUnwrap(service.loadSnapshot().skills.first)
+        try service.trashSkill(skill)
+
+        XCTAssertEqual(trashedPaths, [rootURL.appendingPathComponent("frontend-design").path])
+        XCTAssertTrue(service.loadSnapshot().skills.isEmpty)
     }
 
     private func makeTemporaryDirectory() -> URL {

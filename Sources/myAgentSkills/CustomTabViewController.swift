@@ -21,6 +21,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
     private var currentCategoryFilterOptions: [CategoryFilterOption] = []
     private var selectedCategoryID: String?
     private var categorizationHelpWindowController: CategorizationHelpWindowController?
+    private var transientStatusMessage: String?
 
     init(catalogService: CustomSkillsCatalogService) {
         self.catalogService = catalogService
@@ -134,10 +135,18 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        transientStatusMessage = nil
         applyFilter()
     }
 
     @objc private func refresh() {
+        reloadData()
+    }
+
+    private func reloadData(preserveTransientStatus: Bool = false) {
+        if !preserveTransientStatus {
+            transientStatusMessage = nil
+        }
         catalogSnapshot = catalogService.loadSnapshot()
         allSkills = catalogSnapshot.skills
         ensureValidSelectedCategory()
@@ -159,6 +168,47 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         NSWorkspace.shared.activateFileViewerSelecting([filteredSkills[sender.tag].folderURL])
     }
 
+    @objc private func toggleSkillEnabled(_ sender: NSSwitch) {
+        guard sender.tag >= 0, sender.tag < filteredSkills.count else { return }
+        let skill = filteredSkills[sender.tag]
+        let shouldEnable = sender.state == .on
+
+        do {
+            try catalogService.setSkill(skill, enabled: shouldEnable)
+            transientStatusMessage = shouldEnable
+                ? "Enabled `\(skill.name)` and moved it back into `~/.agents/skills`."
+                : "Disabled `\(skill.name)` and moved it into `~/.agents/skills/.disabled`."
+            reloadData(preserveTransientStatus: true)
+        } catch {
+            sender.state = shouldEnable ? .off : .on
+            transientStatusMessage = error.localizedDescription
+            applyFilter()
+        }
+    }
+
+    @objc private func trashSkill(_ sender: NSButton) {
+        guard sender.tag >= 0, sender.tag < filteredSkills.count else { return }
+        let skill = filteredSkills[sender.tag]
+
+        let alert = NSAlert()
+        alert.messageText = "Move skill to Trash?"
+        alert.informativeText = "This will move `\(skill.name)` to the macOS Trash. You can recover it from Trash later."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try catalogService.trashSkill(skill)
+            transientStatusMessage = "Moved `\(skill.name)` to the Trash."
+            reloadData(preserveTransientStatus: true)
+        } catch {
+            transientStatusMessage = error.localizedDescription
+            applyFilter()
+        }
+    }
+
     private func applyFilter() {
         let categoryFilteredSkills = skillsMatchingSelectedCategory(allSkills)
         filteredSkills = catalogService.filter(skills: categoryFilteredSkills, query: searchField.stringValue)
@@ -169,6 +219,11 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
     }
 
     private func updateStatusLabel() {
+        if let transientStatusMessage, !transientStatusMessage.isEmpty {
+            statusLabel.stringValue = transientStatusMessage
+            return
+        }
+
         let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if filteredSkills.isEmpty {
@@ -242,6 +297,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
     @objc private func selectCategoryFilter(_ sender: NSButton) {
         guard sender.tag >= 0, sender.tag < currentCategoryFilterOptions.count else { return }
         selectedCategoryID = currentCategoryFilterOptions[sender.tag].id
+        transientStatusMessage = nil
         applyFilter()
         resetResultsScrollPosition()
     }
@@ -351,12 +407,30 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         fileButton.tag = index
         let folderButton = makeActionButton("Open Folder", target: self, action: #selector(openSkillFolder(_:)))
         folderButton.tag = index
+        let trashButton = makeIconActionButton(
+            systemSymbolName: "trash",
+            accessibilityLabel: "Move skill to Trash",
+            target: self,
+            action: #selector(trashSkill(_:))
+        )
+        trashButton.tag = index
+
+        let enabledSwitch = NSSwitch()
+        enabledSwitch.controlSize = .small
+        enabledSwitch.state = skill.isDisabled ? .off : .on
+        enabledSwitch.tag = index
+        enabledSwitch.target = self
+        enabledSwitch.action = #selector(toggleSkillEnabled(_:))
+        enabledSwitch.toolTip = skill.isDisabled ? "Enable skill" : "Disable skill"
 
         return SkillRowBox(
             title: skill.name,
             subtitle: "",
             body: skill.description,
-            actionButtons: [copyButton, fileButton, folderButton]
+            actionButtons: [copyButton, fileButton, folderButton],
+            headerAccessoryViews: [trashButton, enabledSwitch],
+            statusText: skill.isDisabled ? "Disabled" : nil,
+            isDimmed: skill.isDisabled
         )
     }
 
