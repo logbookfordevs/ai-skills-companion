@@ -24,7 +24,7 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
         view = NSView()
         view.translatesAutoresizingMaskIntoConstraints = false
 
-        let descriptionLabel = makeBodyLabel("Search the official skills catalog through the CLI. When you want to install something, this tab hands off to the real interactive CLI in Terminal so its own agent-selection flow stays intact.")
+        let descriptionLabel = makeBodyLabel("Search the official skills catalog through the CLI. When you want to install something, this tab prepares the real `skills.sh` command for you to paste into your own terminal and follow there.")
         descriptionLabel.textColor = .secondaryLabelColor
         descriptionLabel.alignment = .left
 
@@ -32,7 +32,7 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
         searchField.delegate = self
 
         let searchButton = makeActionButton("Search", target: self, action: #selector(runSearch))
-        let addButton = makeActionButton("Install Source In CLI", target: self, action: #selector(promptForSourceInstall))
+        let addButton = makeActionButton("Copy Install Command", target: self, action: #selector(promptForSourceInstall))
 
         let controls = NSStackView(views: [searchField, searchButton, addButton])
         controls.orientation = .horizontal
@@ -109,7 +109,7 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
             self.results = parsedResults
             self.outputComponents.textView.string = result.combinedOutput
             self.statusLabel.stringValue = parsedResults.isEmpty
-                ? "No structured results were parsed. You can still use the guided installer."
+                ? "No structured results were parsed. You can still copy an install command manually."
                 : "Found \(parsedResults.count) result(s)."
             self.renderResults()
         }
@@ -126,10 +126,10 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
 
     @objc private func promptForSourceInstall() {
         let alert = NSAlert()
-        alert.messageText = "Install source with skills CLI"
-        alert.informativeText = "Enter a GitHub shorthand, full URL, or local path. The real interactive CLI will open in the terminal you choose next."
+        alert.messageText = "Copy install command"
+        alert.informativeText = "Enter a GitHub shorthand, full URL, or local path. The app will copy the real `skills.sh` command so you can paste it into your favorite terminal and follow the CLI prompts there."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Copy Command")
         alert.addButton(withTitle: "Cancel")
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
@@ -139,19 +139,12 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let source = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !source.isEmpty else { return }
-
-        guard let terminalApp = promptForTerminalSelection() else { return }
-        let result = cliService.openInteractiveInstall(source: source, terminalApp: terminalApp)
-        outputComponents.textView.string = result.combinedOutput
-        statusLabel.stringValue = result.succeeded ? "Opened interactive CLI install in \(terminalApp.displayName)." : "Could not open interactive install."
+        copyInstallCommand(for: source)
     }
 
-    @objc private func installResultInTerminal(_ sender: NSButton) {
+    @objc private func copyInstallCommandForResult(_ sender: NSButton) {
         guard sender.tag >= 0, sender.tag < results.count else { return }
-        guard let terminalApp = promptForTerminalSelection() else { return }
-        let result = cliService.openInteractiveInstall(source: results[sender.tag].installSource, terminalApp: terminalApp)
-        outputComponents.textView.string = result.combinedOutput
-        statusLabel.stringValue = result.succeeded ? "Opened interactive CLI install in \(terminalApp.displayName)." : "Could not open interactive install."
+        copyInstallCommand(for: results[sender.tag].installSource)
     }
 
     @objc private func copyInstallSource(_ sender: NSButton) {
@@ -179,7 +172,7 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
         var cards: [NSView] = []
 
         for (index, result) in results.enumerated() {
-            let installButton = makeActionButton("Install In CLI", target: self, action: #selector(installResultInTerminal(_:)))
+            let installButton = makeActionButton("Copy Install Command", target: self, action: #selector(copyInstallCommandForResult(_:)))
             installButton.tag = index
             let copyButton = makeActionButton("Copy Source", target: self, action: #selector(copyInstallSource(_:)))
             copyButton.tag = index
@@ -206,61 +199,23 @@ final class OfficialTabViewController: NSViewController, NSSearchFieldDelegate {
         return "npx is unavailable. Official search and install will show setup errors until Node.js is available to GUI apps."
     }
 
-    private func promptForTerminalSelection() -> InteractiveTerminalApp? {
-        let availableTerminalApps = cliService.availableTerminalApps()
-        guard !availableTerminalApps.isEmpty else {
-            statusLabel.stringValue = "No supported terminal apps were detected."
-            outputComponents.textView.string = "Supported terminals: Terminal, iTerm2, Ghostty, and Kitty."
-            return nil
+    private func copyInstallCommand(for source: String) {
+        let result = cliService.prepareInstallCommand(source: source)
+        outputComponents.textView.string = result.combinedOutput
+
+        guard result.succeeded else {
+            statusLabel.stringValue = "Could not prepare the install command."
+            return
         }
+
+        copyToPasteboard(result.displayCommand)
+        statusLabel.stringValue = "Copied install command. Paste it into your terminal and follow the CLI prompts."
 
         let alert = NSAlert()
-        alert.messageText = "Choose a terminal"
-        alert.informativeText = "Choose which terminal should open the interactive skills install flow."
+        alert.messageText = "Install command copied"
+        alert.informativeText = "Paste the copied command into your favorite terminal and follow the `skills.sh` CLI prompts there."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Install")
-        alert.addButton(withTitle: "Cancel")
-
-        let terminalPicker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
-        availableTerminalApps.forEach { terminalPicker.addItem(withTitle: $0.displayName) }
-
-        if let preferredTerminal = cliService.preferredTerminalApp(),
-           let preferredIndex = availableTerminalApps.firstIndex(of: preferredTerminal) {
-            terminalPicker.selectItem(at: preferredIndex)
-        }
-
-        let rememberChoiceButton = NSButton(checkboxWithTitle: "Remember this terminal", target: nil, action: nil)
-        rememberChoiceButton.state = cliService.preferredTerminalApp() == nil ? .off : .on
-        rememberChoiceButton.setButtonType(.switch)
-
-        let accessoryContainer = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 70))
-        accessoryContainer.translatesAutoresizingMaskIntoConstraints = false
-        terminalPicker.translatesAutoresizingMaskIntoConstraints = false
-        rememberChoiceButton.translatesAutoresizingMaskIntoConstraints = false
-        accessoryContainer.addSubview(terminalPicker)
-        accessoryContainer.addSubview(rememberChoiceButton)
-
-        NSLayoutConstraint.activate([
-            terminalPicker.leadingAnchor.constraint(equalTo: accessoryContainer.leadingAnchor),
-            terminalPicker.trailingAnchor.constraint(equalTo: accessoryContainer.trailingAnchor),
-            terminalPicker.topAnchor.constraint(equalTo: accessoryContainer.topAnchor),
-            rememberChoiceButton.leadingAnchor.constraint(equalTo: accessoryContainer.leadingAnchor),
-            rememberChoiceButton.topAnchor.constraint(equalTo: terminalPicker.bottomAnchor, constant: 10),
-            rememberChoiceButton.trailingAnchor.constraint(lessThanOrEqualTo: accessoryContainer.trailingAnchor),
-            rememberChoiceButton.bottomAnchor.constraint(equalTo: accessoryContainer.bottomAnchor)
-        ])
-
-        alert.accessoryView = accessoryContainer
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        let selectedTerminal = availableTerminalApps[terminalPicker.indexOfSelectedItem]
-
-        if rememberChoiceButton.state == .on {
-            cliService.rememberPreferredTerminalApp(selectedTerminal)
-        } else {
-            cliService.clearPreferredTerminalApp()
-        }
-
-        return selectedTerminal
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

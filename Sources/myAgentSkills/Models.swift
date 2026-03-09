@@ -65,7 +65,9 @@ struct CLICommandResult: Equatable {
     }
 
     var displayCommand: String {
-        let binary = executablePath ?? "npx"
+        let binary = executablePath
+            .flatMap { URL(fileURLWithPath: $0).lastPathComponent.isEmpty ? nil : URL(fileURLWithPath: $0).lastPathComponent }
+            ?? "npx"
         return ([binary] + arguments).joined(separator: " ")
     }
 
@@ -82,50 +84,6 @@ struct CLICommandResult: Equatable {
             "Exit Code: \(exitCode)"
         ]
         return sections.compactMap { $0 }.joined(separator: "\n\n")
-    }
-}
-
-enum InteractiveTerminalApp: String, CaseIterable {
-    case terminal
-    case iTerm2
-    case ghostty
-    case kitty
-
-    var displayName: String {
-        switch self {
-        case .terminal:
-            return "Terminal"
-        case .iTerm2:
-            return "iTerm2"
-        case .ghostty:
-            return "Ghostty"
-        case .kitty:
-            return "Kitty"
-        }
-    }
-
-    var bundleIdentifier: String {
-        switch self {
-        case .terminal:
-            return "com.apple.Terminal"
-        case .iTerm2:
-            return "com.googlecode.iterm2"
-        case .ghostty:
-            return "com.mitchellh.ghostty"
-        case .kitty:
-            return "net.kovidgoyal.kitty"
-        }
-    }
-
-    var executableRelativePath: String? {
-        switch self {
-        case .terminal, .iTerm2:
-            return nil
-        case .ghostty:
-            return "Contents/MacOS/ghostty"
-        case .kitty:
-            return "Contents/MacOS/kitty"
-        }
     }
 }
 
