@@ -11,6 +11,7 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
     private let outputComponents = makeCommandOutputView()
     private var allRecords: [InstalledSkillRecord] = []
     private var filteredRecords: [InstalledSkillRecord] = []
+    private var committedQuery = ""
     private let sourceFilterTitles = [
         "All Sources",
         "Global",
@@ -45,11 +46,12 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
         sourceFilterPopUp.target = self
         sourceFilterPopUp.action = #selector(sourceFilterChanged)
 
+        let searchButton = makeActionButton("Search", target: self, action: #selector(runSearch))
         let refreshButton = makeActionButton("Refresh", target: self, action: #selector(refresh))
         let checkButton = makeActionButton("Check Updates", target: self, action: #selector(checkUpdates))
         let updateButton = makeActionButton("Update All", target: self, action: #selector(updateAll))
 
-        let controls = NSStackView(views: [searchField, sourceFilterPopUp, refreshButton, checkButton, updateButton])
+        let controls = NSStackView(views: [searchField, searchButton, sourceFilterPopUp, refreshButton, checkButton, updateButton])
         controls.orientation = .horizontal
         controls.spacing = 8
         controls.alignment = .centerY
@@ -101,7 +103,18 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty, !committedQuery.isEmpty else { return }
+        committedQuery = ""
         applyFilter()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            runSearch()
+            return true
+        }
+        return false
     }
 
     func reloadContent() {
@@ -111,6 +124,11 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
 
     @objc private func refresh() {
         reloadContent()
+    }
+
+    @objc private func runSearch() {
+        committedQuery = searchField.stringValue
+        applyFilter()
     }
 
     @objc private func checkUpdates() {
@@ -159,14 +177,14 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
 
     private func applyFilter() {
         let sourceFilteredRecords = recordsMatchingSelectedSource(allRecords)
-        filteredRecords = catalogService.filter(skills: sourceFilteredRecords, query: searchField.stringValue)
+        filteredRecords = catalogService.filter(skills: sourceFilteredRecords, query: committedQuery)
         updateStatusLabel()
         renderRows()
     }
 
     private func updateStatusLabel() {
         let selectedSource = selectedSourceTitle()
-        let searchQuery = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchQuery = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if allRecords.isEmpty {
             statusLabel.stringValue = "No skills were found in the configured agent folders."
@@ -222,7 +240,7 @@ final class InstalledTabViewController: NSViewController, NSSearchFieldDelegate 
 
         guard !filteredRecords.isEmpty else {
             let selectedSource = selectedSourceTitle()
-            let searchQuery = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let searchQuery = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             let emptyTitle: String
             let emptyMessage: String
 

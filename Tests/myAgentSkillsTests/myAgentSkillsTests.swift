@@ -78,6 +78,104 @@ final class myAgentSkillsTests: XCTestCase {
         XCTAssertEqual(selected, "/present/npx")
     }
 
+    func testCodexRuntimeResolverSelectsFirstExecutable() {
+        let selected = CodexRuntimeResolver.selectExecutable(
+            from: ["/missing/codex", "/present/codex", "/other/codex"],
+            fileExists: { $0 == "/present/codex" }
+        )
+
+        XCTAssertEqual(selected, "/present/codex")
+    }
+
+    func testAutoCategorizeBuildsExpectedCodexArguments() {
+        let rootURL = URL(fileURLWithPath: "/tmp/skills-root")
+        let service = CodexCategorizationService(rootURL: rootURL)
+        let arguments = service.buildArguments(prompt: "Prompt body")
+
+        XCTAssertEqual(arguments.prefix(2), ["exec", "--skip-git-repo-check"])
+        XCTAssertTrue(arguments.contains("--sandbox"))
+        XCTAssertTrue(arguments.contains("workspace-write"))
+        XCTAssertTrue(arguments.contains("--full-auto"))
+        XCTAssertTrue(arguments.contains("--ephemeral"))
+        XCTAssertTrue(arguments.contains("--add-dir"))
+        XCTAssertTrue(arguments.contains(rootURL.path))
+        XCTAssertEqual(arguments.last, "Prompt body")
+    }
+
+    func testAutoCategorizePromptForMissingCatalogRequestsCreateFromScratch() {
+        let service = CodexCategorizationService(rootURL: URL(fileURLWithPath: "/tmp/skills-root"))
+        let snapshot = CustomSkillsCatalogSnapshot(
+            skills: [
+                makeCustomSkillRecord(folderName: "frontend-design", isDisabled: false),
+                makeCustomSkillRecord(folderName: "structured-debugging", isDisabled: true)
+            ],
+            categorizationState: .missing
+        )
+
+        let prompt = service.buildPrompt(snapshot: snapshot)
+
+        XCTAssertTrue(prompt.contains("skills.json is currently missing"))
+        XCTAssertTrue(prompt.contains("create it from scratch"))
+        XCTAssertTrue(prompt.contains("Active skill folders: frontend-design"))
+        XCTAssertTrue(prompt.contains("Disabled skill folders: structured-debugging"))
+        XCTAssertTrue(prompt.contains(SkillCatalogDefinition.templateJSON))
+    }
+
+    func testAutoCategorizePromptForLoadedCatalogPreservesExistingMappings() {
+        let service = CodexCategorizationService(rootURL: URL(fileURLWithPath: "/tmp/skills-root"))
+        let definition = SkillCatalogDefinition(
+            version: 1,
+            generatedAt: "2026-03-08",
+            description: "Test catalog",
+            scopes: [
+                SkillCatalogScope(id: "frontend", label: "Frontend", description: "Frontend work")
+            ],
+            skills: [
+                SkillCategorizationEntry(
+                    folder: "frontend-design",
+                    name: "frontend-design",
+                    scope: "frontend",
+                    platforms: ["generic"],
+                    tags: ["ui"]
+                )
+            ]
+        )
+        let snapshot = CustomSkillsCatalogSnapshot(
+            skills: [makeCustomSkillRecord(folderName: "frontend-design", isDisabled: false)],
+            categorizationState: .loaded(definition)
+        )
+
+        let prompt = service.buildPrompt(
+            snapshot: snapshot,
+            additionalInstruction: "Put all of my ShadCN skills in a specific group."
+        )
+
+        XCTAssertTrue(prompt.contains("skills.json currently exists and is valid"))
+        XCTAssertTrue(prompt.contains("Keep all current mappings and only append missing skill entries"))
+        XCTAssertTrue(prompt.contains("Existing scopes: Frontend"))
+        XCTAssertTrue(prompt.contains("several Stitch-focused skills should live in a dedicated Stitch scope"))
+        XCTAssertTrue(prompt.contains("a single shadcn-ui skill should usually remain inside Frontend"))
+        XCTAssertTrue(prompt.contains("a browser automation skill usually belongs in Automation"))
+        XCTAssertTrue(prompt.contains("Avoid broad catch-all scopes like Engineering"))
+        XCTAssertTrue(prompt.contains("do not put a skill into Video only because it mentions Remotion"))
+        XCTAssertTrue(prompt.contains("Brand-focused or project-focused skills should usually live in Project Context or Brand Context"))
+        XCTAssertTrue(prompt.contains("Additional user guidance for this run"))
+        XCTAssertTrue(prompt.contains("Put all of my ShadCN skills in a specific group."))
+    }
+
+    func testAutoCategorizePromptForInvalidCatalogRequestsRepair() {
+        let service = CodexCategorizationService(rootURL: URL(fileURLWithPath: "/tmp/skills-root"))
+        let snapshot = CustomSkillsCatalogSnapshot(
+            skills: [makeCustomSkillRecord(folderName: "remotion", isDisabled: false)],
+            categorizationState: .invalid(message: "Unexpected end of file")
+        )
+
+        let prompt = service.buildPrompt(snapshot: snapshot)
+
+        XCTAssertTrue(prompt.contains("skills.json currently exists but cannot be parsed"))
+        XCTAssertTrue(prompt.contains("repair it"))
+    }
+
     func testInstallWizardBuildsExpectedCommand() {
         var state = InstallWizardState()
         state.sourceKind = .github
@@ -289,4 +387,21 @@ final class myAgentSkillsTests: XCTestCase {
         """
         try contents.write(to: folderURL.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
     }
+}
+
+private func makeCustomSkillRecord(folderName: String, isDisabled: Bool) -> CustomSkillRecord {
+    CustomSkillRecord(
+        name: folderName,
+        description: "Description for \(folderName)",
+        folderName: folderName,
+        folderURL: URL(fileURLWithPath: "/tmp/\(folderName)"),
+        skillFileURL: URL(fileURLWithPath: "/tmp/\(folderName)/SKILL.md"),
+        isDisabled: isDisabled,
+        storageLocation: isDisabled ? .disabled : .active,
+        categoryScopeID: nil,
+        categoryLabel: nil,
+        categoryDescription: nil,
+        tags: [],
+        platforms: []
+    )
 }

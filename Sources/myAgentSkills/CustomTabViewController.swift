@@ -7,13 +7,25 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         let title: String
     }
 
+    private enum AutoCategorizeRunState {
+        case idle
+        case running
+        case succeeded
+        case failed
+    }
+
     private let catalogService: CustomSkillsCatalogService
+    private let codexCategorizationService: CodexCategorizationService
     private let searchField = NSSearchField()
     private let bannerContainer = NSView()
     private let categoryFiltersContainer = NSView()
     private let categoryFiltersStack = NSStackView()
     private let rowsScrollView = NSScrollView()
     private let rowsStack = NSStackView()
+    private let autoCategorizeOutput = makeCommandOutputView()
+    private let autoCategorizeOutputSection: CollapsibleSectionView
+    private let autoCategorizeInstructionField = NSTextField()
+    private let autoCategorizeOverlay = NSView()
     private let statusLabel = makeSecondaryLabel("")
     private var catalogSnapshot = CustomSkillsCatalogSnapshot(skills: [], categorizationState: .missing)
     private var allSkills: [CustomSkillRecord] = []
@@ -22,9 +34,22 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
     private var selectedCategoryID: String?
     private var categorizationHelpWindowController: CategorizationHelpWindowController?
     private var transientStatusMessage: String?
+    private var committedQuery = ""
+    private var autoCategorizeRunState: AutoCategorizeRunState = .idle
+    private var isShowingAutoCategorizeConfirmation = false
+    private var autoCategorizeStreamedOutput = false
 
-    init(catalogService: CustomSkillsCatalogService) {
+    init(
+        catalogService: CustomSkillsCatalogService,
+        codexCategorizationService: CodexCategorizationService = CodexCategorizationService()
+    ) {
         self.catalogService = catalogService
+        self.codexCategorizationService = codexCategorizationService
+        self.autoCategorizeOutputSection = CollapsibleSectionView(
+            title: "Auto Categorize Output",
+            contentView: autoCategorizeOutput.container,
+            startsExpanded: false
+        )
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -43,16 +68,22 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
 
         searchField.placeholderString = "Search local skills by name or description"
         searchField.delegate = self
+        autoCategorizeInstructionField.placeholderString = "Optional: e.g. Keep Stitch skills together, but leave shadcn-ui inside Frontend."
 
+        let searchButton = makeActionButton("Search", target: self, action: #selector(runSearch))
         let refreshButton = makeActionButton("Refresh", target: self, action: #selector(refresh))
 
-        let controls = NSStackView(views: [searchField, refreshButton])
+        let controls = NSStackView(views: [searchField, searchButton, refreshButton])
         controls.orientation = .horizontal
         controls.spacing = 8
         controls.alignment = .centerY
 
         bannerContainer.translatesAutoresizingMaskIntoConstraints = false
         categoryFiltersContainer.translatesAutoresizingMaskIntoConstraints = false
+        autoCategorizeOverlay.translatesAutoresizingMaskIntoConstraints = false
+        autoCategorizeOverlay.isHidden = true
+        autoCategorizeOverlay.wantsLayer = true
+        autoCategorizeOverlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.06).cgColor
 
         let categoryFiltersScrollView = NSScrollView()
         categoryFiltersScrollView.borderType = .noBorder
@@ -104,7 +135,9 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
 
         statusLabel.alignment = .right
 
-        let stack = NSStackView(views: [descriptionLabel, bannerContainer, controls, categoryFiltersContainer, statusLabel, scrollView])
+        autoCategorizeOutput.textView.string = "Run Auto Categorize to see Codex output here."
+
+        let stack = NSStackView(views: [descriptionLabel, bannerContainer, controls, categoryFiltersContainer, statusLabel, scrollView, autoCategorizeOutputSection])
         stack.orientation = .vertical
         stack.spacing = 12
         stack.alignment = .width
@@ -121,26 +154,50 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         addFullWidthArrangedSubview(categoryFiltersContainer, to: stack)
         addFullWidthArrangedSubview(statusLabel, to: stack)
         addFullWidthArrangedSubview(scrollView, to: stack)
+        addFullWidthArrangedSubview(autoCategorizeOutputSection, to: stack)
 
         view.addSubview(stack)
+        view.addSubview(autoCategorizeOverlay)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
-            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 260)
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+            autoCategorizeOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            autoCategorizeOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            autoCategorizeOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            autoCategorizeOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
+        configureAutoCategorizeOverlay()
         refresh()
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty, !committedQuery.isEmpty else { return }
+        committedQuery = ""
         transientStatusMessage = nil
         applyFilter()
     }
 
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            runSearch()
+            return true
+        }
+        return false
+    }
+
     @objc private func refresh() {
         reloadData()
+    }
+
+    @objc private func runSearch() {
+        committedQuery = searchField.stringValue
+        transientStatusMessage = nil
+        applyFilter()
     }
 
     private func reloadData(preserveTransientStatus: Bool = false) {
@@ -211,7 +268,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
 
     private func applyFilter() {
         let categoryFilteredSkills = skillsMatchingSelectedCategory(allSkills)
-        filteredSkills = catalogService.filter(skills: categoryFilteredSkills, query: searchField.stringValue)
+        filteredSkills = catalogService.filter(skills: categoryFilteredSkills, query: committedQuery)
         renderBanner()
         renderCategoryFilters()
         updateStatusLabel()
@@ -224,7 +281,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
             return
         }
 
-        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if filteredSkills.isEmpty {
             if query.isEmpty {
@@ -261,22 +318,51 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
             bannerView = ActionBannerView(
                 title: "Organize your skills by category",
                 message: "Add `skills.json` to `~/.agents/skills` to group local skills into sections like Frontend, Docs, and Review.",
-                buttonTitle: "Categorize",
+                buttonTitle: "Auto Categorize",
                 target: self,
-                action: #selector(showCategorizationHelp),
-                tone: .highlight
+                action: #selector(confirmAutoCategorize),
+                tone: .highlight,
+                buttonEnabled: autoCategorizeRunState != .running,
+                secondaryButtonTitle: "Categorize",
+                secondaryTarget: self,
+                secondaryAction: #selector(showCategorizationHelp)
             )
         case .invalid(let message):
             bannerView = ActionBannerView(
                 title: "skills.json couldn’t be read",
                 message: "Showing the flat list for now. \(message)",
-                buttonTitle: "Categorize",
+                buttonTitle: "Auto Categorize",
                 target: self,
-                action: #selector(showCategorizationHelp),
-                tone: .caution
+                action: #selector(confirmAutoCategorize),
+                tone: .caution,
+                buttonEnabled: autoCategorizeRunState != .running,
+                secondaryButtonTitle: "Categorize",
+                secondaryTarget: self,
+                secondaryAction: #selector(showCategorizationHelp)
             )
         case .loaded:
-            bannerView = nil
+            if hasUncategorizedSkills(in: allSkills) {
+                let title = autoCategorizeRunState == .running
+                    ? "Auto categorization is running"
+                    : "Some skills still need categories"
+                let message = autoCategorizeRunState == .running
+                    ? "Codex is updating `skills.json` now. Open `Auto Categorize Output` below to follow the run inside the app."
+                    : "Use Auto Categorize to ask Codex to update `skills.json` and append the skills that are still uncategorized."
+                bannerView = ActionBannerView(
+                    title: title,
+                    message: message,
+                    buttonTitle: "Auto Categorize",
+                    target: self,
+                    action: #selector(confirmAutoCategorize),
+                    tone: .highlight,
+                    buttonEnabled: autoCategorizeRunState != .running,
+                    secondaryButtonTitle: "Categorize",
+                    secondaryTarget: self,
+                    secondaryAction: #selector(showCategorizationHelp)
+                )
+            } else {
+                bannerView = nil
+            }
         }
 
         guard let bannerView else {
@@ -314,6 +400,27 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         controller.showWindow(nil)
         controller.window?.center()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func confirmAutoCategorize() {
+        guard autoCategorizeRunState != .running else { return }
+        isShowingAutoCategorizeConfirmation = true
+        transientStatusMessage = "Review the Auto Categorize confirmation. The Codex run output will appear below inside the app."
+        autoCategorizeOutputSection.setExpanded(true)
+        autoCategorizeOverlay.isHidden = false
+        view.window?.makeFirstResponder(autoCategorizeInstructionField)
+        updateStatusLabel()
+    }
+
+    @objc private func cancelAutoCategorizeConfirmation() {
+        isShowingAutoCategorizeConfirmation = false
+        autoCategorizeOverlay.isHidden = true
+        transientStatusMessage = nil
+        updateStatusLabel()
+    }
+
+    @objc private func runAutoCategorizeFromBanner() {
+        runAutoCategorize()
     }
 
     private func renderCategoryFilters() {
@@ -367,6 +474,153 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         renderFlatRows(filteredSkills)
     }
 
+    private func runAutoCategorize() {
+        guard autoCategorizeRunState != .running else { return }
+
+        isShowingAutoCategorizeConfirmation = false
+        autoCategorizeOverlay.isHidden = true
+        autoCategorizeRunState = .running
+        transientStatusMessage = "Running Codex auto-categorization. Open `Auto Categorize Output` below to follow the process."
+        autoCategorizeStreamedOutput = false
+        autoCategorizeOutput.textView.string = "Starting Codex auto-categorization...\n\nLive Codex output will appear here.\n"
+        autoCategorizeOutputSection.setExpanded(true)
+        renderBanner()
+        updateStatusLabel()
+
+        let snapshot = catalogSnapshot
+        codexCategorizationService.run(
+            snapshot: snapshot,
+            additionalInstruction: autoCategorizeInstructionField.stringValue,
+            onOutput: { [weak self] chunk in
+                guard let self else { return }
+                self.autoCategorizeStreamedOutput = true
+                self.appendAutoCategorizeOutput(chunk)
+            }
+        ) { [weak self] result in
+            guard let self else { return }
+            if !self.autoCategorizeStreamedOutput {
+                self.autoCategorizeOutput.textView.string = result.combinedOutput
+            } else {
+                self.appendAutoCategorizeCompletionSummary(result)
+            }
+
+            guard result.succeeded else {
+                self.autoCategorizeRunState = .failed
+                self.transientStatusMessage = "Auto Categorize failed. Review `Auto Categorize Output` below for details."
+                self.renderBanner()
+                self.updateStatusLabel()
+                return
+            }
+
+            self.catalogSnapshot = self.catalogService.loadSnapshot()
+            self.allSkills = self.catalogSnapshot.skills
+            self.ensureValidSelectedCategory()
+
+            if case .loaded = self.catalogSnapshot.categorizationState,
+               !self.hasUncategorizedSkills(in: self.allSkills) {
+                self.autoCategorizeRunState = .succeeded
+                self.transientStatusMessage = "Auto Categorize updated `skills.json` successfully."
+            } else {
+                self.autoCategorizeRunState = .failed
+                self.transientStatusMessage = "Codex finished, but `skills.json` still needs review."
+            }
+
+            self.applyFilter()
+        }
+    }
+
+    private func configureAutoCategorizeOverlay() {
+        autoCategorizeOverlay.subviews.forEach { $0.removeFromSuperview() }
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.wantsLayer = true
+        container.layer?.cornerRadius = 14
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.4).cgColor
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+
+        let titleLabel = NSTextField(labelWithString: "Auto Categorize with Codex")
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = NSColor.systemTeal.blended(withFraction: 0.2, of: .labelColor) ?? .labelColor
+        titleLabel.alignment = .right
+
+        let messageLabel = makeBodyLabel("AI Skills Companion will ask Codex to create or update `~/.agents/skills/skills.json`, preserve existing mappings, append only missing skills, and leave the run details in the `Auto Categorize Output` section below.")
+        messageLabel.textColor = .secondaryLabelColor
+        messageLabel.alignment = .right
+
+        let helperLabel = makeSecondaryLabel("Optional custom guidance for this run:")
+        helperLabel.alignment = .right
+
+        autoCategorizeInstructionField.translatesAutoresizingMaskIntoConstraints = false
+        autoCategorizeInstructionField.isEnabled = autoCategorizeRunState != .running
+        autoCategorizeInstructionField.controlSize = .regular
+        autoCategorizeInstructionField.font = .systemFont(ofSize: 13)
+
+        let exampleLabel = makeSecondaryLabel("Example: Put all of my ShadCN skills in a specific group, but keep Stitch and Remotion together under Stitch.")
+        exampleLabel.alignment = .right
+
+        let runButton = makeActionButton("Run Auto Categorize", target: self, action: #selector(runAutoCategorizeFromBanner))
+        runButton.contentTintColor = .systemTeal
+        runButton.isEnabled = autoCategorizeRunState != .running
+
+        let cancelButton = makeActionButton("Cancel", target: self, action: #selector(cancelAutoCategorizeConfirmation))
+        cancelButton.isEnabled = autoCategorizeRunState != .running
+
+        let buttonSpacer = NSView()
+        buttonSpacer.translatesAutoresizingMaskIntoConstraints = false
+        buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        buttonSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let buttonRow = NSStackView(views: [buttonSpacer, cancelButton, runButton])
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 8
+        buttonRow.alignment = .centerY
+
+        let stack = NSStackView(views: [titleLabel, messageLabel, helperLabel, autoCategorizeInstructionField, exampleLabel, buttonRow])
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .width
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        autoCategorizeOverlay.addSubview(container)
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            autoCategorizeInstructionField.heightAnchor.constraint(equalToConstant: 30),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+            container.centerXAnchor.constraint(equalTo: autoCategorizeOverlay.centerXAnchor),
+            container.topAnchor.constraint(equalTo: autoCategorizeOverlay.topAnchor, constant: 88),
+            container.widthAnchor.constraint(equalTo: autoCategorizeOverlay.widthAnchor, multiplier: 0.84),
+            container.widthAnchor.constraint(lessThanOrEqualToConstant: 860)
+        ])
+    }
+
+    private func appendAutoCategorizeOutput(_ chunk: String) {
+        let textView = autoCategorizeOutput.textView
+        textView.textStorage?.append(NSAttributedString(string: chunk))
+        textView.scrollRangeToVisible(NSRange(location: textView.string.count, length: 0))
+    }
+
+    private func appendAutoCategorizeCompletionSummary(_ result: CLICommandResult) {
+        var sections: [String] = []
+        sections.append("Command: \(result.displayCommand)")
+
+        if let workingDirectory = result.workingDirectory {
+            sections.append("Working Directory: \(workingDirectory)")
+        }
+
+        if (result.executablePath == nil || !result.succeeded), !result.attemptedPaths.isEmpty {
+            sections.append("Attempted codex paths:\n\(result.attemptedPaths.joined(separator: "\n"))")
+        }
+
+        sections.append("Exit Code: \(result.exitCode)")
+
+        appendAutoCategorizeOutput("\n\n" + sections.joined(separator: "\n\n"))
+    }
+
     private func renderCategorizedRows() {
         let sections = catalogService.buildSections(
             skills: filteredSkills,
@@ -416,7 +670,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         trashButton.tag = index
 
         let enabledSwitch = NSSwitch()
-        enabledSwitch.controlSize = .small
+        enabledSwitch.controlSize = .mini
         enabledSwitch.state = skill.isDisabled ? .off : .on
         enabledSwitch.tag = index
         enabledSwitch.target = self
@@ -428,7 +682,7 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
             subtitle: "",
             body: skill.description,
             actionButtons: [copyButton, fileButton, folderButton],
-            headerAccessoryViews: [trashButton, enabledSwitch],
+            headerAccessoryViews: [enabledSwitch, trashButton],
             statusText: skill.isDisabled ? "Disabled" : nil,
             isDimmed: skill.isDisabled
         )
@@ -453,9 +707,11 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
             return []
         }
 
+        let populatedCategoryIDs = Set(allSkills.compactMap(\.categoryScopeID))
         var options = [CategoryFilterOption(id: nil, title: "All Categories")]
-        options.append(contentsOf: definition.scopes.map { scope in
-            CategoryFilterOption(id: scope.id, title: scope.label)
+        options.append(contentsOf: definition.scopes.compactMap { scope in
+            guard populatedCategoryIDs.contains(scope.id) else { return nil }
+            return CategoryFilterOption(id: scope.id, title: scope.label)
         })
 
         if allSkills.contains(where: { $0.categoryScopeID == nil }) {
@@ -463,6 +719,10 @@ final class CustomTabViewController: NSViewController, NSSearchFieldDelegate {
         }
 
         return options
+    }
+
+    private func hasUncategorizedSkills(in skills: [CustomSkillRecord]) -> Bool {
+        skills.contains { $0.categoryScopeID == nil }
     }
 
     private func ensureValidSelectedCategory() {

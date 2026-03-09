@@ -5,7 +5,7 @@ final class PopoverViewController: NSViewController {
     private let officialViewController: OfficialTabViewController
     private let installedViewController: InstalledTabViewController
     private let customViewController: CustomTabViewController
-    private let segmentedControl = NSSegmentedControl(labels: ["Official", "Per Agent", "Skills"], trackingMode: .selectOne, target: nil, action: nil)
+    private let segmentedControl = NSSegmentedControl(labels: ["Hub", "Per Agent", "Global"], trackingMode: .selectOne, target: nil, action: nil)
     private let contentContainer = NSView()
     private var currentViewController: NSViewController?
 
@@ -35,7 +35,7 @@ final class PopoverViewController: NSViewController {
 
         view = NSView()
 
-        let titleLabel = NSTextField(labelWithString: "My Agent Skills")
+        let titleLabel = NSTextField(labelWithString: "AI Skills Companion")
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
 
         let subtitleLabel = makeBodyLabel("Switch between official CLI search, skills organized per agent, and the skills stored in `~/.agents/skills`.")

@@ -16,15 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "My Agent Skills")
+            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI Skills Companion")
             button.image?.isTemplate = true
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "My Agent Skills"
+            button.toolTip = "AI Skills Companion"
         }
 
-        let quitItem = NSMenuItem(title: "Quit My Agent Skills", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit AI Skills Companion", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         statusMenu.addItem(quitItem)
 

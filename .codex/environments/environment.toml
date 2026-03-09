@@ -10,5 +10,5 @@ name = "Run"
 icon = "run"
 command = '''
 pkill -x myAgentSkills
-open "My Agent Skills.app"
+open "AI Skills Companion.app"
 '''

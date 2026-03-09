@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>My Agent Skills</string>
+    <string>AI Skills Companion</string>
     <key>CFBundleExecutable</key>
     <string>myAgentSkills</string>
     <key>CFBundleIconFile</key>
@@ -11,7 +11,7 @@
     <key>CFBundleIdentifier</key>
     <string>com.myagentskills.app</string>
     <key>CFBundleName</key>
-    <string>My Agent Skills</string>
+    <string>AI Skills Companion</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

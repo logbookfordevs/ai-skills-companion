@@ -1,7 +1,7 @@
-# My Agent Skills
+# AI Skills Companion
 
 <p align="center">
-  <img src="assets/icon.png" width="128" height="128" alt="My Agent Skills icon">
+  <img src="assets/icon.png" width="128" height="128" alt="AI Skills Companion icon">
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 
 `skills.sh` is powerful, but the day-to-day experience of remembering commands, checking what is installed where, and browsing your own local skill library is still easier when it lives in the menu bar.
 
-My Agent Skills gives you:
+AI Skills Companion gives you:
 
 - a native macOS menu bar interface
 - official `skills.sh` search without leaving the app
@@ -30,6 +30,7 @@ My Agent Skills gives you:
 - Swift / Xcode Command Line Tools for building the app
 - Node.js with `npx` available if you want the `Official` and `Per Agent` CLI-backed features
 - `skills.sh` available through `npx skills ...`
+- Codex CLI available if you want to use `Auto Categorize` in the `Skills` tab
 
 ### Build
 
@@ -41,13 +42,13 @@ swift build
 ### Run
 
 ```bash
-open "My Agent Skills.app"
+open "AI Skills Companion.app"
 ```
 
 ### Menu Bar Behavior
 
 - Left click the menu bar icon to open or close the app popover.
-- Right click the menu bar icon to open a small menu with `Quit My Agent Skills`.
+- Right click the menu bar icon to open a small menu with `Quit AI Skills Companion`.
 - Clicking outside the popover closes it automatically.
 - Pressing `Esc` closes the popover too.
 
@@ -55,15 +56,15 @@ open "My Agent Skills.app"
 
 The app has 3 tabs:
 
-- `Official`
+- `Hub`
 - `Per Agent`
-- `Skills`
+- `Global`
 
 Each tab has a different source of truth and a different job.
 
-## Official Tab
+## Hub Tab
 
-The `Official` tab is the `skills.sh` catalog browser.
+The `Hub` tab is the `skills.sh` catalog browser.
 
 ### What it does
 
@@ -93,7 +94,7 @@ This keeps the upstream CLI flow intact while avoiding fragile terminal-launch b
 
 ### Command Output
 
-The `Official` tab includes a collapsible `Command Output` section so you can inspect the underlying CLI command and output only when you want it.
+The `Hub` tab includes a collapsible `Command Output` section so you can inspect the underlying CLI command and output only when you want it.
 
 ## Per Agent Tab
 
@@ -109,7 +110,7 @@ The `Per Agent` tab shows skills that already exist inside common agent skill fo
 ### What it does
 
 - Browses installed skills by source bucket
-- Lets you search installed skills
+- Lets you search installed skills with `Search` or `Enter`
 - Lets you filter by source using:
   - `All Sources`
   - `Global`
@@ -134,18 +135,19 @@ The `Per Agent` tab also exposes:
 
 Like the `Official` tab, this tab also includes a collapsible `Command Output` section.
 
-## Skills Tab
+## Global Tab
 
-The `Skills` tab is your local skill library view for `~/.agents/skills`.
+The `Global` tab is your local skill library view for `~/.agents/skills`.
 
 This tab is where the app becomes more than a CLI wrapper. It helps you browse, organize, and manage your own local skills.
 
 ### What it does
 
 - Reads local skills from `~/.agents/skills`
-- Searches by name and description
+- Searches by name and description with `Search` or `Enter`
 - Supports optional category grouping through `skills.json`
 - Shows category chips when categorization is available
+- Can ask Codex to create or update `skills.json` for you
 - Keeps disabled skills visible
 - Lets you:
   - copy the skill name
@@ -247,7 +249,10 @@ When `skills.json` loads successfully:
 
 The app falls back to the normal flat list and shows a highlighted banner that introduces categorization.
 
-That banner includes a `Categorize` button.
+That banner includes:
+
+- `Auto Categorize`
+- `Categorize`
 
 ### If `skills.json` is invalid
 
@@ -256,6 +261,7 @@ The app:
 - does not crash
 - falls back to the flat list
 - shows a caution banner
+- offers `Auto Categorize` as a repair path
 - still lets you copy the JSON template from the help window
 
 ### JSON template help
@@ -265,6 +271,38 @@ If you do not have a `skills.json` yet, the app can open a helper modal with:
 - a short explanation of what categorization does
 - a starter JSON template
 - a `Copy JSON Template` action
+
+### Auto Categorize with Codex
+
+If Codex CLI is installed, the `Skills` tab can ask Codex to create or update:
+
+```bash
+~/.agents/skills/skills.json
+```
+
+The app shows `Auto Categorize` when:
+
+- `skills.json` is missing
+- `skills.json` is invalid
+- valid categorization exists, but some local skills still appear under `Uncategorized`
+
+When you run `Auto Categorize`, the app:
+
+- runs `codex exec` directly from the app
+- points Codex at `~/.agents/skills`
+- asks Codex to preserve existing scopes and mappings
+- asks Codex to append only missing skills
+- allows Codex to create a new scope only if existing scopes are clearly a poor fit
+- includes both active and disabled skills in the categorization pass
+
+Before the run starts, the `Skills` tab keeps the confirmation inside the popover instead of opening a separate system alert. That way, the user can stay in context and immediately inspect the run feedback in the same screen.
+
+That confirmation step also includes an optional custom-instruction field for one-off guidance such as:
+
+- `Keep Stitch skills together, but leave shadcn-ui inside Frontend.`
+- `Put all of my ShadCN skills in a dedicated group.`
+
+The `Skills` tab also includes a collapsible `Auto Categorize Output` section. It expands during a run and streams Codex output live so the app does not feel frozen while categorization is in progress.
 
 ## Local File Layout
 
@@ -304,6 +342,7 @@ Important design choices:
 - Official installs still rely on the real `skills.sh` CLI flow, but the app now copies the command instead of opening a terminal for you.
 - The `Per Agent` tab is inspection and update oriented, not local file management oriented.
 - Category grouping currently applies only to the `Skills` tab.
+- `Auto Categorize` depends on the local Codex CLI being installed and available to GUI apps.
 - The app expects the local Swift toolchain and SDK to be aligned for successful builds.
 
 ## Troubleshooting
@@ -321,6 +360,12 @@ That is expected. Paste the copied command into your own terminal and follow the
 ### A skill cannot be restored
 
 The most likely reason is a folder name conflict in `~/.agents/skills`.
+
+### Auto Categorize is unavailable or fails
+
+This usually means the app could not find `codex`, or the Codex run could not write a valid `skills.json`.
+
+Open the `Auto Categorize Output` section in the `Skills` tab to inspect the command, stdout, stderr, and exit code.
 
 ### `swift test` fails in this environment
 
@@ -376,6 +421,14 @@ Add a categorized local skills screenshot here.
 
 ```md
 ![Skills Tab](docs/screenshots/skills-tab.png)
+```
+
+### Categorization Banner / Auto Categorize
+
+Add the categorization banner, modal, or Codex output screenshot here.
+
+```md
+![Auto Categorize](docs/screenshots/auto-categorize.png)
 ```
 
 ### Categorization Banner / Modal

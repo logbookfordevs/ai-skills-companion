@@ -191,6 +191,12 @@ final class CollapsibleSectionView: NSView {
         )
     }
 
+    func setExpanded(_ expanded: Bool) {
+        guard isExpanded != expanded else { return }
+        isExpanded = expanded
+        updateExpandedState()
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -210,6 +216,7 @@ final class SkillRowBox: NSView {
     private let fullBody: String
     private let collapsedBody: String
     private let isExpandable: Bool
+    private let collapsedLineLimit: Int?
     private var isExpanded = false
 
     init(
@@ -219,11 +226,14 @@ final class SkillRowBox: NSView {
         actionButtons: [NSButton],
         headerAccessoryViews: [NSView] = [],
         statusText: String? = nil,
-        isDimmed: Bool = false
+        isDimmed: Bool = false,
+        collapsedCharacterLimit: Int = 180,
+        collapsedLineLimit: Int? = nil
     ) {
         self.fullBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.collapsedBody = SkillRowBox.truncatedBody(for: self.fullBody)
+        self.collapsedBody = SkillRowBox.truncatedBody(for: self.fullBody, limit: collapsedCharacterLimit)
         self.isExpandable = self.collapsedBody != self.fullBody
+        self.collapsedLineLimit = collapsedLineLimit
         self.bodyLabel = makeBodyLabel(self.collapsedBody)
         self.toggleButton = makeLinkButton("View more", target: nil, action: nil)
         super.init(frame: .zero)
@@ -259,7 +269,7 @@ final class SkillRowBox: NSView {
 
         let buttonRow = NSStackView(views: actionButtons)
         buttonRow.orientation = .horizontal
-        buttonRow.spacing = 6
+        buttonRow.spacing = 8
         buttonRow.alignment = .centerY
         buttonRow.setContentCompressionResistancePriority(.required, for: .horizontal)
         buttonRow.setContentHuggingPriority(.required, for: .horizontal)
@@ -277,9 +287,16 @@ final class SkillRowBox: NSView {
 
         let titleRow = NSStackView()
         titleRow.orientation = .horizontal
-        titleRow.spacing = 8
+        titleRow.spacing = 10
         titleRow.alignment = .centerY
-        titleRow.addArrangedSubview(titleLabel)
+
+        let titleContentRow = NSStackView()
+        titleContentRow.orientation = .horizontal
+        titleContentRow.spacing = 8
+        titleContentRow.alignment = .centerY
+        titleContentRow.setContentHuggingPriority(.required, for: .horizontal)
+        titleContentRow.setContentCompressionResistancePriority(.required, for: .horizontal)
+        titleContentRow.addArrangedSubview(titleLabel)
 
         if let statusText, !statusText.isEmpty {
             let statusBadgeLabel = makeBadgeLabel(statusText)
@@ -296,8 +313,10 @@ final class SkillRowBox: NSView {
                 statusBadgeLabel.topAnchor.constraint(equalTo: statusBadge.topAnchor, constant: 3),
                 statusBadgeLabel.bottomAnchor.constraint(equalTo: statusBadge.bottomAnchor, constant: -3)
             ])
-            titleRow.addArrangedSubview(statusBadge)
+            titleContentRow.addArrangedSubview(statusBadge)
         }
+
+        titleRow.addArrangedSubview(titleContentRow)
 
         let titleSpacer = NSView()
         titleSpacer.translatesAutoresizingMaskIntoConstraints = false
@@ -313,27 +332,32 @@ final class SkillRowBox: NSView {
 
         let bottomRow = NSStackView()
         bottomRow.orientation = .horizontal
-        bottomRow.spacing = 8
+        bottomRow.spacing = 10
         bottomRow.alignment = .centerY
         if isExpandable {
             bottomRow.addArrangedSubview(toggleButton)
         }
-        bottomRow.addArrangedSubview(spacer)
         bottomRow.addArrangedSubview(buttonRow)
+        bottomRow.addArrangedSubview(spacer)
 
-        let stack = NSStackView(views: [titleRow, subtitleLabel, bodyLabel, bottomRow])
+        let stack = NSStackView()
         stack.orientation = .vertical
-        stack.spacing = 6
+        stack.spacing = 10
         stack.alignment = .width
         stack.translatesAutoresizingMaskIntoConstraints = false
+
+        addFullWidthArrangedSubview(titleRow, to: stack)
+        addFullWidthArrangedSubview(subtitleLabel, to: stack)
+        addFullWidthArrangedSubview(bodyLabel, to: stack)
+        addFullWidthArrangedSubview(bottomRow, to: stack)
 
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
         ])
 
         updateDescriptionState()
@@ -347,6 +371,8 @@ final class SkillRowBox: NSView {
 
     private func updateDescriptionState() {
         bodyLabel.stringValue = isExpanded ? fullBody : collapsedBody
+        bodyLabel.maximumNumberOfLines = isExpanded ? 0 : (collapsedLineLimit ?? 0)
+        bodyLabel.lineBreakMode = isExpanded ? .byWordWrapping : (collapsedLineLimit == nil ? .byWordWrapping : .byTruncatingTail)
         toggleButton.title = isExpanded ? "Show less" : "View more"
     }
 
@@ -605,6 +631,7 @@ final class ActionBannerView: NSView {
     enum Tone {
         case neutral
         case highlight
+        case confirmation
         case caution
 
         var backgroundColor: NSColor {
@@ -613,6 +640,8 @@ final class ActionBannerView: NSView {
                 return NSColor.controlBackgroundColor.withAlphaComponent(0.9)
             case .highlight:
                 return NSColor.controlAccentColor.withAlphaComponent(0.10)
+            case .confirmation:
+                return NSColor.systemTeal.withAlphaComponent(0.12)
             case .caution:
                 return NSColor.systemOrange.withAlphaComponent(0.10)
             }
@@ -624,6 +653,8 @@ final class ActionBannerView: NSView {
                 return .separatorColor
             case .highlight:
                 return NSColor.controlAccentColor.withAlphaComponent(0.35)
+            case .confirmation:
+                return NSColor.systemTeal.withAlphaComponent(0.4)
             case .caution:
                 return NSColor.systemOrange.withAlphaComponent(0.35)
             }
@@ -635,6 +666,8 @@ final class ActionBannerView: NSView {
                 return .labelColor
             case .highlight:
                 return NSColor.controlAccentColor.blended(withFraction: 0.15, of: .labelColor) ?? .labelColor
+            case .confirmation:
+                return NSColor.systemTeal.blended(withFraction: 0.2, of: .labelColor) ?? .labelColor
             case .caution:
                 return NSColor.systemOrange.blended(withFraction: 0.25, of: .labelColor) ?? .labelColor
             }
@@ -646,6 +679,8 @@ final class ActionBannerView: NSView {
                 return .secondaryLabelColor
             case .highlight:
                 return NSColor.controlAccentColor.blended(withFraction: 0.55, of: .secondaryLabelColor) ?? .secondaryLabelColor
+            case .confirmation:
+                return NSColor.systemTeal.blended(withFraction: 0.5, of: .secondaryLabelColor) ?? .secondaryLabelColor
             case .caution:
                 return NSColor.systemOrange.blended(withFraction: 0.55, of: .secondaryLabelColor) ?? .secondaryLabelColor
             }
@@ -657,6 +692,8 @@ final class ActionBannerView: NSView {
                 return .controlAccentColor
             case .highlight:
                 return .controlAccentColor
+            case .confirmation:
+                return .systemTeal
             case .caution:
                 return .systemOrange
             }
@@ -669,7 +706,12 @@ final class ActionBannerView: NSView {
         buttonTitle: String? = nil,
         target: AnyObject? = nil,
         action: Selector? = nil,
-        tone: Tone = .neutral
+        tone: Tone = .neutral,
+        buttonEnabled: Bool = true,
+        secondaryButtonTitle: String? = nil,
+        secondaryTarget: AnyObject? = nil,
+        secondaryAction: Selector? = nil,
+        secondaryButtonEnabled: Bool = true
     ) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -694,22 +736,48 @@ final class ActionBannerView: NSView {
         textStack.alignment = .width
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
+        let primaryButton: NSButton?
         if let buttonTitle, let action {
             let button = makeActionButton(buttonTitle, target: target, action: action)
             button.setContentHuggingPriority(.required, for: .horizontal)
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
             button.contentTintColor = tone.buttonTint
+            button.isEnabled = buttonEnabled
+            primaryButton = button
+        } else {
+            primaryButton = nil
+        }
 
+        let secondaryButton: NSButton?
+        if let secondaryButtonTitle, let secondaryAction {
+            let button = makeActionButton(secondaryButtonTitle, target: secondaryTarget, action: secondaryAction)
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            button.isEnabled = secondaryButtonEnabled
+            secondaryButton = button
+        } else {
+            secondaryButton = nil
+        }
+
+        if primaryButton != nil || secondaryButton != nil {
             let buttonSpacer = NSView()
             buttonSpacer.translatesAutoresizingMaskIntoConstraints = false
             buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             buttonSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-            let buttonRow = NSStackView(views: [buttonSpacer, button])
+            let buttonRow = NSStackView()
             buttonRow.orientation = .horizontal
-            buttonRow.spacing = 0
+            buttonRow.spacing = 8
             buttonRow.alignment = .centerY
             buttonRow.translatesAutoresizingMaskIntoConstraints = false
+            buttonRow.addArrangedSubview(buttonSpacer)
+
+            if let secondaryButton {
+                buttonRow.addArrangedSubview(secondaryButton)
+            }
+            if let primaryButton {
+                buttonRow.addArrangedSubview(primaryButton)
+            }
 
             textStack.addArrangedSubview(buttonRow)
             textStack.setCustomSpacing(10, after: messageLabel)
