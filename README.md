@@ -34,6 +34,22 @@ npx skills add https://github.com/logbookfordevs/ai-field-kit --skill ai-compani
 
 That skill reads your existing `~/.agents/skills/skills.json`, uses categories, tags, and platforms as discovery hints, and then quietly hands off to the best matching real skill.
 
+This matters most when the request is broad but clearly points at one or more areas in your own library, for example:
+
+- "I want to improve my frontend design and add animation."
+- "Use my review skills to check this PR."
+- "Help me document this with my documentation skills."
+- "Pick the best skills from my library for this task."
+
+The point is not to replace normal discovery. The point is to let the taxonomy you created in AI Skills Companion influence which skills get selected first.
+
+In practice, that means:
+
+- the agent can consult the same categories you already organized in the app
+- direct skill mentions still win
+- real skill metadata still wins over stale taxonomy conflicts
+- if `skills.json` is missing, the companion skill becomes a near-no-op
+
 ## Quick Start
 
 ### Requirements
