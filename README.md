@@ -22,6 +22,18 @@ AI Skills Companion gives you:
 - optional categorization through `skills.json`
 - local skill management actions such as disable, re-enable, and move to Trash
 
+### Companion Skill
+
+The app's categorization file is also useful outside the app itself.
+
+If you want agents like Codex, Claude Code, Gemini, Cursor, or other skill-aware tools to use the same taxonomy when they discover skills, install the portable `ai-companion` skill from the [AI Field Kit repo](https://github.com/logbookfordevs/ai-field-kit):
+
+```bash
+npx skills add https://github.com/logbookfordevs/ai-field-kit --skill ai-companion
+```
+
+That skill reads your existing `~/.agents/skills/skills.json`, uses categories, tags, and platforms as discovery hints, and then quietly hands off to the best matching real skill.
+
 ## Quick Start
 
 ### Requirements
