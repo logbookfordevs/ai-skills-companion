@@ -1,13 +1,14 @@
 # AI Skills Companion
 
 > [!IMPORTANT]
-> **Archived — development has moved to [AI Field Kit (AFK 2.0)](https://ai-field-kit.logbookfordevs.com/).** AI Skills Companion no longer receives updates or support. We recommend AFK for new setups: its CLI opens a local web app for managing your coding-agent skills and tools.
+> **AI Skills Companion is retired. Development has moved to [AI Field Kit — AFK 2.0](https://github.com/logbookfordevs/ai-field-kit).**
 >
-> Build reusable skill profiles, enable them globally or for a project, and read a profile’s guidance without enabling it. Keep installed skills, favorite sources and stacks, saved tool commands, and shared agent rules together in one local workspace. AFK runs on your machine and keeps global and project scope explicit.
+> We recommend AFK for new setups: a CLI and local web app for managing skills, reusable profiles, tools, and shared agent rules. Prepare a profile once and enable it globally or for a project; inspect and update installed skills; save skill sources and stacks; and preview rule changes before syncing them to your agents.
 >
-> **[Get AI Field Kit →](https://ai-field-kit.logbookfordevs.com/)** · [Read the field manual](https://ai-field-kit.logbookfordevs.com/docs) · [View the maintained source](https://github.com/logbookfordevs/ai-field-kit)
+> Run `afk` to open the local web app, or use the CLI with your coding agent. See the [AFK installation guide](https://github.com/logbookfordevs/ai-field-kit/blob/main/packages/afk/README.md) to get started. Your existing skills are not automatically migrated or removed.
 >
-> Prefer the original macOS menu bar app? **[Download the last release](https://github.com/logbookfordevs/ai-skills-companion/releases/latest/download/AI.Skills.Companion.dmg)**. The [legacy website](https://ai-skills-companion.logbookfordevs.com/) and release downloads remain available; the documentation below describes the archived app.
+> **Prefer the macOS menu bar app?** The [latest DMG remains available](https://github.com/logbookfordevs/ai-skills-companion/releases/latest/download/AI.Skills.Companion.dmg). This legacy app no longer receives active development or support; its documentation remains below.
+
 
 <p align="center">
   <img src="assets/icon.png" width="128" height="128" alt="AI Skills Companion icon">
