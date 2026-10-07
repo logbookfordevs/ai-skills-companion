@@ -1,7 +1,13 @@
 # AI Skills Companion
 
 > [!IMPORTANT]
-> **This project is archived and no longer receives support.** Its role has been superseded by the [AI Field Kit CLI](https://github.com/logbookfordevs/ai-field-kit), which is the maintained path for discovering and managing AFK skills and tooling. This repository remains available as a historical reference.
+> **Archived — development has moved to [AI Field Kit (AFK 2.0)](https://ai-field-kit.logbookfordevs.com/).** AI Skills Companion no longer receives updates or support. We recommend AFK for new setups: its CLI opens a local web app for managing your coding-agent skills and tools.
+>
+> Build reusable skill profiles, enable them globally or for a project, and read a profile’s guidance without enabling it. Keep installed skills, favorite sources and stacks, saved tool commands, and shared agent rules together in one local workspace. AFK runs on your machine and keeps global and project scope explicit.
+>
+> **[Get AI Field Kit →](https://ai-field-kit.logbookfordevs.com/)** · [Read the field manual](https://ai-field-kit.logbookfordevs.com/docs) · [View the maintained source](https://github.com/logbookfordevs/ai-field-kit)
+>
+> Prefer the original macOS menu bar app? **[Download the last release](https://github.com/logbookfordevs/ai-skills-companion/releases/latest/download/AI.Skills.Companion.dmg)**. The [legacy website](https://ai-skills-companion.logbookfordevs.com/) and release downloads remain available; the documentation below describes the archived app.
 
 <p align="center">
   <img src="assets/icon.png" width="128" height="128" alt="AI Skills Companion icon">
